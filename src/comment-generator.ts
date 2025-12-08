@@ -172,6 +172,11 @@ export async function fetchBaselineResults(
   workflowName: string,
   artifactName: string
 ): Promise<Record<string, ServerTestResult> | null> {
+  const fs = await import('fs');
+  const path = await import('path');
+  const os = await import('os');
+  const { exec } = await import('@actions/exec');
+  
   try {
     const octokit = github.getOctokit(token);
     const { owner, repo } = github.context.repo;
@@ -210,7 +215,7 @@ export async function fetchBaselineResults(
       return null;
     }
 
-    // Download and parse artifact
+    // Download artifact
     const download = await octokit.rest.actions.downloadArtifact({
       owner,
       repo,
@@ -218,10 +223,49 @@ export async function fetchBaselineResults(
       archive_format: 'zip'
     });
 
-    // Note: In a real implementation, we would need to extract and parse the zip file
-    // For now, we'll return null and handle this in the main flow
-    core.info(`Downloaded artifact for ${branch}`);
-    return null;
+    core.info(`Downloaded artifact for ${branch}, extracting...`);
+
+    // Write zip to temp file and extract using shell
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `baseline-${branch}-`));
+    const zipPath = path.join(tempDir, 'artifact.zip');
+    const extractDir = path.join(tempDir, 'extracted');
+    
+    fs.writeFileSync(zipPath, Buffer.from(download.data as ArrayBuffer));
+    fs.mkdirSync(extractDir, { recursive: true });
+    
+    // Use unzip command (available on GitHub Actions runners)
+    await exec('unzip', ['-q', zipPath, '-d', extractDir], { ignoreReturnCode: true });
+    
+    // Parse the extracted JSON files
+    const results: Record<string, ServerTestResult> = {};
+    const files = fs.readdirSync(extractDir);
+    
+    for (const file of files) {
+      if (file.endsWith('-results.json')) {
+        try {
+          const content = fs.readFileSync(path.join(extractDir, file), 'utf8');
+          const result: ServerTestResult = JSON.parse(content);
+          results[result.serverName] = result;
+          core.info(`Loaded baseline for ${result.serverName} from ${branch}`);
+        } catch (e) {
+          core.debug(`Failed to parse ${file}: ${e}`);
+        }
+      }
+    }
+
+    // Cleanup temp files
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+
+    if (Object.keys(results).length === 0) {
+      core.info(`No results found in artifact for ${branch}`);
+      return null;
+    }
+
+    return results;
   } catch (error) {
     core.warning(`Error fetching baseline for ${branch}: ${error}`);
     return null;
