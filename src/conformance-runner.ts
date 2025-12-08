@@ -4,6 +4,44 @@ import { ServerConfig, ServerTestResult } from './types';
 import { parseConformanceOutput } from './result-parser';
 
 /**
+ * Kill a process tree by PID
+ */
+async function killProcessTree(pid: string): Promise<void> {
+  try {
+    // First, try graceful shutdown with SIGTERM
+    core.info(`Sending SIGTERM to process ${pid}`);
+    await exec.exec('kill', ['-TERM', pid], {
+      ignoreReturnCode: true
+    });
+
+    // Wait a bit for graceful shutdown
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Check if process is still running
+    const exitCode = await exec.exec('kill', ['-0', pid], {
+      ignoreReturnCode: true,
+      silent: true
+    });
+
+    if (exitCode === 0) {
+      // Process still running, force kill
+      core.info(`Process ${pid} still running, sending SIGKILL`);
+      await exec.exec('kill', ['-9', pid], {
+        ignoreReturnCode: true
+      });
+    }
+
+    // Kill any remaining child processes
+    await exec.exec('pkill', ['-9', '-P', pid], {
+      ignoreReturnCode: true,
+      silent: true
+    });
+  } catch (error) {
+    core.debug(`Error killing process ${pid}: ${error}`);
+  }
+}
+
+/**
  * Run conformance tests for a single server
  */
 export async function runConformanceTest(
@@ -23,13 +61,27 @@ export async function runConformanceTest(
     }
   }
 
-  // Start the server in the background
+  let serverPid: string | null = null;
+
+  // Start the server in the background and capture its PID
   core.info(`Starting ${server.name} server`);
-  const serverProcess = exec.exec(
+  let pidOutput = '';
+  await exec.exec(
     'bash',
-    ['-c', server['start-command']],
+    [
+      '-c',
+      `cd ${server['working-directory'] || '.'} && ${server['start-command']} & echo $!`
+    ],
     {
-      cwd: server['working-directory'] || process.cwd(),
+      listeners: {
+        stdout: (data: Buffer) => {
+          const output = data.toString().trim();
+          if (output && /^\d+$/.test(output)) {
+            serverPid = output;
+            core.info(`Server started with PID: ${serverPid}`);
+          }
+        }
+      },
       ignoreReturnCode: true
     }
   );
@@ -76,13 +128,27 @@ export async function runConformanceTest(
   } finally {
     // Kill the server process
     core.info(`Stopping ${server.name} server`);
-    try {
-      await exec.exec('pkill', ['-f', server['start-command']], {
-        ignoreReturnCode: true
-      });
-    } catch {
-      // Ignore errors when killing the process
+    
+    if (serverPid) {
+      await killProcessTree(serverPid);
     }
+
+    // Fallback: kill by command pattern
+    try {
+      await exec.exec(
+        'bash',
+        ['-c', `pkill -9 -f "${server['start-command']}" || true`],
+        {
+          ignoreReturnCode: true,
+          silent: true
+        }
+      );
+    } catch {
+      // Ignore errors
+    }
+
+    // Wait a moment for cleanup
+    await new Promise(resolve => setTimeout(resolve, 1000));
   }
 
   // Parse the output
