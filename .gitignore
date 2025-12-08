@@ -1,0 +1,7 @@
+node_modules/
+lib/
+*.log
+.DS_Store
+
+# Keep dist/ for GitHub Actions
+# dist/ is committed for actions to work

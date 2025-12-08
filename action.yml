@@ -1,0 +1,73 @@
+name: 'MCP Conformance Tests'
+description: 'Run MCP conformance tests against server implementations'
+author: 'MCP Use'
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  mode:
+    description: 'Action mode: "test" to run tests, "comment" to post results'
+    required: false
+    default: 'test'
+  
+  servers:
+    description: 'JSON array of server configurations (required for test mode)'
+    required: false
+  
+  test-type:
+    description: 'Type of conformance tests to run: server, client, or both'
+    required: false
+    default: 'server'
+  
+  conformance-version:
+    description: 'Version of @modelcontextprotocol/conformance to use'
+    required: false
+    default: 'latest'
+  
+  github-token:
+    description: 'GitHub token for API access (required for comment mode)'
+    required: false
+  
+  comment-mode:
+    description: 'How to handle PR comments: create, update, or none'
+    required: false
+    default: 'update'
+  
+  include-baseline-comparison:
+    description: 'Compare results against baseline branches'
+    required: false
+    default: 'true'
+  
+  baseline-branches:
+    description: 'JSON array of branches to compare against'
+    required: false
+    default: '["main", "canary"]'
+  
+  show-summary:
+    description: 'Show results in GitHub Actions summary'
+    required: false
+    default: 'true'
+  
+  artifact-name:
+    description: 'Name for the results artifact'
+    required: false
+    default: 'conformance-results'
+  
+  badge-gist-id:
+    description: 'Gist ID for updating badges (optional)'
+    required: false
+  
+  badge-gist-token:
+    description: 'Token for updating badge gist (optional)'
+    required: false
+
+outputs:
+  results:
+    description: 'JSON array of test results for each server'
+  all-passed:
+    description: 'Whether all tests passed for all servers'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

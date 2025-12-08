@@ -1,0 +1,41 @@
+name: Example - Multi Server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      # This is just an example - replace with your actual server setup
+      - name: Setup servers
+        run: |
+          echo "Setting up Python and TypeScript servers..."
+      
+      - name: Run conformance tests
+        uses: ./
+        with:
+          mode: test
+          servers: |
+            [
+              {
+                "name": "python-example",
+                "start-command": "echo 'Python server' && sleep 10",
+                "url": "http://localhost:8000/mcp"
+              },
+              {
+                "name": "typescript-example",
+                "start-command": "echo 'TypeScript server' && sleep 10",
+                "url": "http://localhost:3000/mcp"
+              }
+            ]
