@@ -164,6 +164,45 @@ export async function postOrUpdateComment(
 }
 
 /**
+ * Parse old-style conformance results text file into ServerTestResult
+ */
+function parseOldResultsFile(content: string, serverName: string): ServerTestResult {
+  const tests: Record<string, boolean> = {};
+  let passed = 0;
+  let failed = 0;
+
+  const lines = content.split('\n');
+  for (const line of lines) {
+    const passMatch = line.match(/[✓✅]\s+(.+?)(?::|$)/);
+    if (passMatch) {
+      const testName = passMatch[1].trim();
+      tests[testName] = true;
+      passed++;
+      continue;
+    }
+    const failMatch = line.match(/[✗❌]\s+(.+?)(?::|$)/);
+    if (failMatch) {
+      const testName = failMatch[1].trim();
+      tests[testName] = false;
+      failed++;
+    }
+  }
+
+  const total = passed + failed;
+  const rate = total > 0 ? Math.round((passed / total) * 100) : 0;
+
+  return {
+    serverName,
+    passed,
+    failed,
+    total,
+    rate,
+    tests,
+    rawOutput: content
+  };
+}
+
+/**
  * Fetch baseline results from a specific branch
  */
 export async function fetchBaselineResults(
@@ -209,46 +248,75 @@ export async function fetchBaselineResults(
       run_id: runId
     });
 
-    const artifact = artifacts.artifacts.find(a => a.name === artifactName);
-    if (!artifact) {
-      core.info(`No artifact ${artifactName} found for ${branch}`);
-      return null;
+    const results: Record<string, ServerTestResult> = {};
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `baseline-${branch}-`));
+
+    // Try new format first (conformance-results)
+    const newArtifact = artifacts.artifacts.find(a => a.name === artifactName);
+    if (newArtifact) {
+      core.info(`Found new-format artifact ${artifactName} for ${branch}`);
+      const download = await octokit.rest.actions.downloadArtifact({
+        owner,
+        repo,
+        artifact_id: newArtifact.id,
+        archive_format: 'zip'
+      });
+
+      const zipPath = path.join(tempDir, 'new.zip');
+      const extractDir = path.join(tempDir, 'new');
+      fs.writeFileSync(zipPath, Buffer.from(download.data as ArrayBuffer));
+      fs.mkdirSync(extractDir, { recursive: true });
+      await exec('unzip', ['-q', zipPath, '-d', extractDir], { ignoreReturnCode: true });
+
+      const files = fs.readdirSync(extractDir);
+      for (const file of files) {
+        if (file.endsWith('-results.json')) {
+          try {
+            const content = fs.readFileSync(path.join(extractDir, file), 'utf8');
+            const result: ServerTestResult = JSON.parse(content);
+            results[result.serverName] = result;
+            core.info(`Loaded baseline for ${result.serverName} from ${branch} (new format)`);
+          } catch (e) {
+            core.debug(`Failed to parse ${file}: ${e}`);
+          }
+        }
+      }
     }
 
-    // Download artifact
-    const download = await octokit.rest.actions.downloadArtifact({
-      owner,
-      repo,
-      artifact_id: artifact.id,
-      archive_format: 'zip'
-    });
-
-    core.info(`Downloaded artifact for ${branch}, extracting...`);
-
-    // Write zip to temp file and extract using shell
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `baseline-${branch}-`));
-    const zipPath = path.join(tempDir, 'artifact.zip');
-    const extractDir = path.join(tempDir, 'extracted');
-    
-    fs.writeFileSync(zipPath, Buffer.from(download.data as ArrayBuffer));
-    fs.mkdirSync(extractDir, { recursive: true });
-    
-    // Use unzip command (available on GitHub Actions runners)
-    await exec('unzip', ['-q', zipPath, '-d', extractDir], { ignoreReturnCode: true });
-    
-    // Parse the extracted JSON files
-    const results: Record<string, ServerTestResult> = {};
-    const files = fs.readdirSync(extractDir);
-    
-    for (const file of files) {
-      if (file.endsWith('-results.json')) {
+    // Try old format (python-conformance-results, typescript-conformance-results)
+    const oldArtifactNames = ['python-conformance-results', 'typescript-conformance-results'];
+    for (const oldName of oldArtifactNames) {
+      if (results[oldName.replace('-conformance-results', '')]) continue; // Already have this server
+      
+      const oldArtifact = artifacts.artifacts.find(a => a.name === oldName);
+      if (oldArtifact) {
+        const serverName = oldName.replace('-conformance-results', '');
+        core.info(`Found old-format artifact ${oldName} for ${branch}`);
+        
         try {
-          const content = fs.readFileSync(path.join(extractDir, file), 'utf8');
-          const result: ServerTestResult = JSON.parse(content);
-          results[result.serverName] = result;
-          core.info(`Loaded baseline for ${result.serverName} from ${branch}`);
+          const download = await octokit.rest.actions.downloadArtifact({
+            owner,
+            repo,
+            artifact_id: oldArtifact.id,
+            archive_format: 'zip'
+          });
+
+          const zipPath = path.join(tempDir, `${serverName}.zip`);
+          const extractDir = path.join(tempDir, serverName);
+          fs.writeFileSync(zipPath, Buffer.from(download.data as ArrayBuffer));
+          fs.mkdirSync(extractDir, { recursive: true });
+          await exec('unzip', ['-q', zipPath, '-d', extractDir], { ignoreReturnCode: true });
+
+          // Look for the text results file
+          const files = fs.readdirSync(extractDir);
+          const resultsFile = files.find(f => f.endsWith('-conformance-results.txt'));
+          if (resultsFile) {
+            const content = fs.readFileSync(path.join(extractDir, resultsFile), 'utf8');
+            results[serverName] = parseOldResultsFile(content, serverName);
+            core.info(`Loaded baseline for ${serverName} from ${branch} (old format)`);
+          }
         } catch (e) {
-          core.debug(`Failed to parse ${file}: ${e}`);
+          core.debug(`Failed to download/parse ${oldName}: ${e}`);
         }
       }
     }
@@ -261,7 +329,7 @@ export async function fetchBaselineResults(
     }
 
     if (Object.keys(results).length === 0) {
-      core.info(`No results found in artifact for ${branch}`);
+      core.info(`No results found in artifacts for ${branch}`);
       return null;
     }
 
