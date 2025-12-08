@@ -1,5 +1,5 @@
 name: 'MCP Conformance Tests'
-description: 'Run MCP conformance tests against server implementations'
+description: 'Run MCP conformance tests against server implementations | by mcp-use'
 author: 'MCP Use'
 branding:
   icon: 'check-circle'
