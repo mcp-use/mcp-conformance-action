@@ -66,11 +66,13 @@ export async function runConformanceTest(
   // Start the server in the background and capture its PID
   core.info(`Starting ${server.name} server`);
   let pidOutput = '';
+  
+  // Use nohup and setsid to properly detach the process
   await exec.exec(
     'bash',
     [
       '-c',
-      `cd ${server['working-directory'] || '.'} && ${server['start-command']} & echo $!`
+      `cd ${server['working-directory'] || '.'} && (setsid ${server['start-command']} > /dev/null 2>&1 & echo $!) || (${server['start-command']} > /dev/null 2>&1 & echo $!)`
     ],
     {
       listeners: {
@@ -133,22 +135,33 @@ export async function runConformanceTest(
       await killProcessTree(serverPid);
     }
 
-    // Fallback: kill by command pattern
-    try {
-      await exec.exec(
-        'bash',
-        ['-c', `pkill -9 -f "${server['start-command']}" || true`],
-        {
+    // Aggressive cleanup: kill all processes matching patterns
+    const cleanupCommands = [
+      // Kill by command pattern
+      `pkill -9 -f "${server['start-command']}" || true`,
+      // Kill any node/python processes in the working directory
+      `pkill -9 -f "${server['working-directory']}" || true`,
+      // Kill by port if URL contains a port
+      server.url.match(/:(\d+)/) ? `lsof -ti :${server.url.match(/:(\d+)/)?.[1]} | xargs -r kill -9 || true` : 'true',
+      // Kill any remaining tsx/python processes
+      `pkill -9 -f "tsx|python.*conformance" || true`
+    ];
+
+    for (const cmd of cleanupCommands) {
+      try {
+        await exec.exec('bash', ['-c', cmd], {
           ignoreReturnCode: true,
           silent: true
-        }
-      );
-    } catch {
-      // Ignore errors
+        });
+      } catch {
+        // Ignore cleanup errors
+      }
     }
 
-    // Wait a moment for cleanup
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Wait for cleanup to complete
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    core.info(`Server cleanup completed for ${server.name}`);
   }
 
   // Parse the output
