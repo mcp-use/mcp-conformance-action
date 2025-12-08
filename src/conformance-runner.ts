@@ -1,11 +1,24 @@
 import * as core from '@actions/core';
 import * as exec from '@actions/exec';
+import { spawn } from 'child_process';
 import { ServerConfig, ServerTestResult } from './types';
 import { parseConformanceOutput } from './result-parser';
 
-// Note: We don't manually kill processes. GitHub Actions automatically
-// cleans up all processes when the job completes, which is more reliable
-// than trying to track and kill them ourselves.
+/**
+ * Start a server process in a truly detached manner
+ */
+function startDetachedServer(command: string, cwd: string): void {
+  const child = spawn('bash', ['-c', command], {
+    cwd,
+    detached: true,
+    stdio: 'ignore' // Don't inherit stdio - this is key to preventing hangs
+  });
+  
+  // Unref the child so the parent can exit independently
+  child.unref();
+  
+  core.info(`Server process spawned (detached)`);
+}
 
 /**
  * Run conformance tests for a single server
@@ -27,19 +40,10 @@ export async function runConformanceTest(
     }
   }
 
-  // Start the server in the background
-  // We don't track PIDs - GitHub Actions will clean up processes when the job ends
+  // Start the server in the background using proper detached spawn
   core.info(`Starting ${server.name} server`);
-  await exec.exec(
-    'bash',
-    [
-      '-c',
-      `cd ${server['working-directory'] || '.'} && ${server['start-command']} &`
-    ],
-    {
-      ignoreReturnCode: true
-    }
-  );
+  const serverCwd = server['working-directory'] || process.cwd();
+  startDetachedServer(server['start-command'], serverCwd);
 
   // Wait for server to be ready
   core.info('Waiting for server to be ready...');
