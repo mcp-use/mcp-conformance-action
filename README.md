@@ -1,3 +1,11 @@
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/mcp-use/mcp-use/main/static/logo_white.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/mcp-use/mcp-use/main/static/logo_black.svg">
+    <img alt="mcp-use logo" src="https://raw.githubusercontent.com/mcp-use/mcp-use/main/static/logo_white.svg" width="60%" style="margin: 20px auto;">
+  </picture>
+</div>
+
 # MCP Conformance Action
 
 A GitHub Action for running [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) conformance tests against server implementations. This action helps ensure your MCP server implementation adheres to the protocol specification.
