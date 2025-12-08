@@ -3,43 +3,9 @@ import * as exec from '@actions/exec';
 import { ServerConfig, ServerTestResult } from './types';
 import { parseConformanceOutput } from './result-parser';
 
-/**
- * Kill a process tree by PID
- */
-async function killProcessTree(pid: string): Promise<void> {
-  try {
-    // First, try graceful shutdown with SIGTERM
-    core.info(`Sending SIGTERM to process ${pid}`);
-    await exec.exec('kill', ['-TERM', pid], {
-      ignoreReturnCode: true
-    });
-
-    // Wait a bit for graceful shutdown
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // Check if process is still running
-    const exitCode = await exec.exec('kill', ['-0', pid], {
-      ignoreReturnCode: true,
-      silent: true
-    });
-
-    if (exitCode === 0) {
-      // Process still running, force kill
-      core.info(`Process ${pid} still running, sending SIGKILL`);
-      await exec.exec('kill', ['-9', pid], {
-        ignoreReturnCode: true
-      });
-    }
-
-    // Kill any remaining child processes
-    await exec.exec('pkill', ['-9', '-P', pid], {
-      ignoreReturnCode: true,
-      silent: true
-    });
-  } catch (error) {
-    core.debug(`Error killing process ${pid}: ${error}`);
-  }
-}
+// Note: We don't manually kill processes. GitHub Actions automatically
+// cleans up all processes when the job completes, which is more reliable
+// than trying to track and kill them ourselves.
 
 /**
  * Run conformance tests for a single server
@@ -61,29 +27,16 @@ export async function runConformanceTest(
     }
   }
 
-  let serverPid: string | null = null;
-
-  // Start the server in the background and capture its PID
+  // Start the server in the background
+  // We don't track PIDs - GitHub Actions will clean up processes when the job ends
   core.info(`Starting ${server.name} server`);
-  let pidOutput = '';
-  
-  // Use nohup and setsid to properly detach the process
   await exec.exec(
     'bash',
     [
       '-c',
-      `cd ${server['working-directory'] || '.'} && (setsid ${server['start-command']} > /dev/null 2>&1 & echo $!) || (${server['start-command']} > /dev/null 2>&1 & echo $!)`
+      `cd ${server['working-directory'] || '.'} && ${server['start-command']} &`
     ],
     {
-      listeners: {
-        stdout: (data: Buffer) => {
-          const output = data.toString().trim();
-          if (output && /^\d+$/.test(output)) {
-            serverPid = output;
-            core.info(`Server started with PID: ${serverPid}`);
-          }
-        }
-      },
       ignoreReturnCode: true
     }
   );
@@ -127,42 +80,9 @@ export async function runConformanceTest(
     core.warning(
       `Error running conformance tests for ${server.name}: ${error}`
     );
-  } finally {
-    // Kill the server process
-    core.info(`Stopping ${server.name} server`);
-    
-    if (serverPid) {
-      await killProcessTree(serverPid);
-    }
-
-    // Aggressive cleanup: kill all processes matching patterns
-    const cleanupCommands = [
-      // Kill by command pattern
-      `pkill -9 -f "${server['start-command']}" || true`,
-      // Kill any node/python processes in the working directory
-      `pkill -9 -f "${server['working-directory']}" || true`,
-      // Kill by port if URL contains a port
-      server.url.match(/:(\d+)/) ? `lsof -ti :${server.url.match(/:(\d+)/)?.[1]} | xargs -r kill -9 || true` : 'true',
-      // Kill any remaining tsx/python processes
-      `pkill -9 -f "tsx|python.*conformance" || true`
-    ];
-
-    for (const cmd of cleanupCommands) {
-      try {
-        await exec.exec('bash', ['-c', cmd], {
-          ignoreReturnCode: true,
-          silent: true
-        });
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
-
-    // Wait for cleanup to complete
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    core.info(`Server cleanup completed for ${server.name}`);
   }
+  // Note: We don't manually clean up server processes
+  // GitHub Actions automatically kills all job processes when the job completes
 
   // Parse the output
   const fullOutput = output + '\n' + errorOutput;
