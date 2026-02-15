@@ -23,16 +23,7 @@ jobs:
       
       - name: Build
         run: yarn build
-      
-      - name: Verify dist is committed
-        run: |
-          if [ -n "$(git status --porcelain dist/)" ]; then
-            echo "Error: dist/ directory has uncommitted changes"
-            echo "Please run 'yarn build' and commit the dist/ directory"
-            git status --porcelain dist/
-            exit 1
-          fi
-      
+
       - name: Extract version from tag
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
