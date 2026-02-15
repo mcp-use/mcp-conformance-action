@@ -3,6 +3,7 @@ export interface ServerConfig {
   'setup-commands'?: string[];
   'start-command': string;
   url: string;
+  'client-command'?: string;
   'working-directory'?: string;
   runtime?: string;
 }
