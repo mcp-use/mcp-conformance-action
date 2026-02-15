@@ -12,9 +12,13 @@ inputs:
     default: 'test'
   
   servers:
-    description: 'JSON array of server configurations (required for test mode)'
+    description: 'JSON array of server configurations [{name, start-command, url, working-directory?, setup-commands?}]'
     required: false
-  
+
+  clients:
+    description: 'JSON array of client configurations [{name, command, working-directory?, setup-commands?}]'
+    required: false
+
   test-type:
     description: 'Type of conformance tests to run: server, client, or both'
     required: false
@@ -64,9 +68,9 @@ inputs:
 
 outputs:
   results:
-    description: 'JSON array of test results for each server'
+    description: 'JSON array of test results for each server and client'
   all-passed:
-    description: 'Whether all tests passed for all servers'
+    description: 'Whether all tests passed for all servers and clients'
 
 runs:
   using: 'node20'

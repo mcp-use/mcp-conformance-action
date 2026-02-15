@@ -3,9 +3,15 @@ export interface ServerConfig {
   'setup-commands'?: string[];
   'start-command': string;
   url: string;
-  'client-command'?: string;
   'working-directory'?: string;
   runtime?: string;
+}
+
+export interface ClientConfig {
+  name: string;
+  'setup-commands'?: string[];
+  command: string;
+  'working-directory'?: string;
 }
 
 export interface TestResult {
@@ -31,6 +37,7 @@ export interface ParsedResults {
 export interface ActionInputs {
   mode: 'test' | 'comment';
   servers?: ServerConfig[];
+  clients?: ClientConfig[];
   testType: 'server' | 'client' | 'both';
   conformanceVersion: string;
   githubToken?: string;

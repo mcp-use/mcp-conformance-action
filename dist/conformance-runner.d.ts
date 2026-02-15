@@ -1,9 +1,13 @@
-import { ServerConfig, ServerTestResult } from './types';
+import { ClientConfig, ServerConfig, ServerTestResult } from './types';
 /**
- * Run conformance tests for a single server
+ * Run server conformance tests for a single server
  */
-export declare function runConformanceTest(server: ServerConfig, conformanceVersion: string, testType: 'server' | 'client' | 'both'): Promise<ServerTestResult>;
+export declare function runServerConformanceTest(server: ServerConfig, conformanceVersion: string): Promise<ServerTestResult>;
 /**
- * Run conformance tests for all configured servers
+ * Run client conformance tests for a single client
  */
-export declare function runAllConformanceTests(servers: ServerConfig[], conformanceVersion: string, testType: 'server' | 'client' | 'both'): Promise<ServerTestResult[]>;
+export declare function runClientConformanceTest(client: ClientConfig, conformanceVersion: string): Promise<ServerTestResult>;
+/**
+ * Run all conformance tests (server and/or client)
+ */
+export declare function runAllConformanceTests(servers: ServerConfig[], conformanceVersion: string, testType: 'server' | 'client' | 'both', clients?: ClientConfig[]): Promise<ServerTestResult[]>;

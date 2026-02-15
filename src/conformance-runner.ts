@@ -1,7 +1,7 @@
 import * as core from '@actions/core';
 import * as exec from '@actions/exec';
 import { spawn } from 'child_process';
-import { ServerConfig, ServerTestResult } from './types';
+import { ClientConfig, ServerConfig, ServerTestResult } from './types';
 import { parseConformanceOutput } from './result-parser';
 
 /**
@@ -11,12 +11,10 @@ function startDetachedServer(command: string, cwd: string): void {
   const child = spawn('bash', ['-c', command], {
     cwd,
     detached: true,
-    stdio: 'ignore' // Don't inherit stdio - this is key to preventing hangs
+    stdio: 'ignore'
   });
 
-  // Unref the child so the parent can exit independently
   child.unref();
-
   core.info(`Server process spawned (detached)`);
 }
 
@@ -51,7 +49,6 @@ async function listClientScenarios(conformanceCommand: string): Promise<string[]
       continue;
     }
     if (inClientSection) {
-      // Stop at next section or empty lines after content
       if (line.includes('Server scenarios') || (scenarios.length > 0 && line.trim() === '')) {
         break;
       }
@@ -70,49 +67,84 @@ async function listClientScenarios(conformanceCommand: string): Promise<string[]
 }
 
 /**
- * Run server conformance tests
+ * Run server conformance tests for a single server
  */
-async function runServerConformance(
+export async function runServerConformanceTest(
   server: ServerConfig,
-  conformanceCommand: string
-): Promise<{ output: string; errorOutput: string }> {
+  conformanceVersion: string
+): Promise<ServerTestResult> {
+  core.info(`Starting server conformance test for ${server.name}`);
+
+  // Execute setup commands
+  if (server['setup-commands'] && server['setup-commands'].length > 0) {
+    core.info(`Running setup commands for ${server.name}`);
+    for (const command of server['setup-commands']) {
+      await exec.exec('bash', ['-c', command], {
+        cwd: server['working-directory'] || process.cwd()
+      });
+    }
+  }
+
+  // Start the server
+  core.info(`Starting ${server.name} server`);
+  const serverCwd = server['working-directory'] || process.cwd();
+  startDetachedServer(server['start-command'], serverCwd);
+
+  core.info('Waiting for server to be ready...');
+  await new Promise(resolve => setTimeout(resolve, 5000));
+
   let output = '';
   let errorOutput = '';
+  const conformanceCommand = getConformanceCommand(conformanceVersion);
 
-  core.info(`Running server conformance tests against ${server.url}`);
-  await exec.exec(
-    'bash',
-    ['-c', `${conformanceCommand} server --url ${server.url}`],
-    {
-      listeners: {
-        stdout: (data: Buffer) => { output += data.toString(); },
-        stderr: (data: Buffer) => { errorOutput += data.toString(); }
-      },
-      ignoreReturnCode: true
-    }
-  );
+  try {
+    core.info(`Running server conformance tests against ${server.url}`);
+    await exec.exec(
+      'bash',
+      ['-c', `${conformanceCommand} server --url ${server.url}`],
+      {
+        listeners: {
+          stdout: (data: Buffer) => { output += data.toString(); },
+          stderr: (data: Buffer) => { errorOutput += data.toString(); }
+        },
+        ignoreReturnCode: true
+      }
+    );
+    core.info(`Server conformance tests completed for ${server.name}`);
+  } catch (error) {
+    core.warning(`Error running server conformance tests for ${server.name}: ${error}`);
+  }
 
-  return { output, errorOutput };
+  const fullOutput = output + '\n' + errorOutput;
+  return parseConformanceOutput(server.name, fullOutput);
 }
 
 /**
- * Run client conformance tests by iterating over each scenario
+ * Run client conformance tests for a single client
  */
-async function runClientConformance(
-  server: ServerConfig,
-  conformanceCommand: string
-): Promise<{ output: string; errorOutput: string }> {
-  const clientCommand = server['client-command'];
-  if (!clientCommand) {
-    core.warning(`No client-command configured for ${server.name}, skipping client tests`);
-    return { output: '', errorOutput: '' };
+export async function runClientConformanceTest(
+  client: ClientConfig,
+  conformanceVersion: string
+): Promise<ServerTestResult> {
+  core.info(`Starting client conformance test for ${client.name}`);
+
+  // Execute setup commands
+  if (client['setup-commands'] && client['setup-commands'].length > 0) {
+    core.info(`Running setup commands for ${client.name}`);
+    for (const command of client['setup-commands']) {
+      await exec.exec('bash', ['-c', command], {
+        cwd: client['working-directory'] || process.cwd()
+      });
+    }
   }
+
+  const conformanceCommand = getConformanceCommand(conformanceVersion);
 
   // List available client scenarios
   const scenarios = await listClientScenarios(conformanceCommand);
   if (scenarios.length === 0) {
     core.warning('No client scenarios found');
-    return { output: '', errorOutput: '' };
+    return parseConformanceOutput(client.name, '');
   }
 
   core.info(`Found ${scenarios.length} client scenarios to run`);
@@ -130,9 +162,10 @@ async function runClientConformance(
         'bash',
         [
           '-c',
-          `${conformanceCommand} client --command "${clientCommand}" --scenario "${scenario}" --timeout 30000`
+          `${conformanceCommand} client --command "${client.command}" --scenario "${scenario}" --timeout 30000`
         ],
         {
+          cwd: client['working-directory'] || process.cwd(),
           listeners: {
             stdout: (data: Buffer) => { scenarioOutput += data.toString(); },
             stderr: (data: Buffer) => { scenarioError += data.toString(); }
@@ -148,105 +181,62 @@ async function runClientConformance(
     allErrorOutput += scenarioError + '\n';
   }
 
-  return { output: allOutput, errorOutput: allErrorOutput };
-}
-
-/**
- * Run conformance tests for a single server
- */
-export async function runConformanceTest(
-  server: ServerConfig,
-  conformanceVersion: string,
-  testType: 'server' | 'client' | 'both'
-): Promise<ServerTestResult> {
-  core.info(`Starting conformance test for ${server.name} (type: ${testType})`);
-
-  // Execute setup commands
-  if (server['setup-commands'] && server['setup-commands'].length > 0) {
-    core.info(`Running setup commands for ${server.name}`);
-    for (const command of server['setup-commands']) {
-      await exec.exec('bash', ['-c', command], {
-        cwd: server['working-directory'] || process.cwd()
-      });
-    }
-  }
-
-  // Start the server in the background (needed for both server and client tests)
-  core.info(`Starting ${server.name} server`);
-  const serverCwd = server['working-directory'] || process.cwd();
-  startDetachedServer(server['start-command'], serverCwd);
-
-  // Wait for server to be ready
-  core.info('Waiting for server to be ready...');
-  await new Promise(resolve => setTimeout(resolve, 5000));
-
-  const conformanceCommand = getConformanceCommand(conformanceVersion);
-  let allOutput = '';
-  let allErrorOutput = '';
-
-  try {
-    if (testType === 'server' || testType === 'both') {
-      const { output, errorOutput } = await runServerConformance(server, conformanceCommand);
-      allOutput += output + '\n';
-      allErrorOutput += errorOutput + '\n';
-    }
-
-    if (testType === 'client' || testType === 'both') {
-      const { output, errorOutput } = await runClientConformance(server, conformanceCommand);
-      allOutput += output + '\n';
-      allErrorOutput += errorOutput + '\n';
-    }
-
-    core.info(`Conformance tests completed for ${server.name}`);
-  } catch (error) {
-    core.warning(
-      `Error running conformance tests for ${server.name}: ${error}`
-    );
-  }
-  // Note: We don't manually clean up server processes
-  // GitHub Actions automatically kills all job processes when the job completes
-
-  // Parse the output
   const fullOutput = allOutput + '\n' + allErrorOutput;
-  return parseConformanceOutput(server.name, fullOutput);
+  return parseConformanceOutput(client.name, fullOutput);
 }
 
 /**
- * Run conformance tests for all configured servers
+ * Run all conformance tests (server and/or client)
  */
 export async function runAllConformanceTests(
   servers: ServerConfig[],
   conformanceVersion: string,
-  testType: 'server' | 'client' | 'both'
+  testType: 'server' | 'client' | 'both',
+  clients?: ClientConfig[]
 ): Promise<ServerTestResult[]> {
   const results: ServerTestResult[] = [];
 
-  for (const server of servers) {
-    core.startGroup(`Conformance tests for ${server.name}`);
-    try {
-      const result = await runConformanceTest(
-        server,
-        conformanceVersion,
-        testType
-      );
-      results.push(result);
-      core.info(
-        `${server.name}: ${result.passed}/${result.total} tests passed (${result.rate}%)`
-      );
-    } catch (error) {
-      core.error(`Failed to run conformance tests for ${server.name}: ${error}`);
-      // Add a failed result
-      results.push({
-        serverName: server.name,
-        passed: 0,
-        failed: 0,
-        total: 0,
-        rate: 0,
-        tests: {},
-        rawOutput: `Error: ${error}`
-      });
-    } finally {
-      core.endGroup();
+  // Run server tests
+  if (testType === 'server' || testType === 'both') {
+    for (const server of servers) {
+      core.startGroup(`Server conformance tests for ${server.name}`);
+      try {
+        const result = await runServerConformanceTest(server, conformanceVersion);
+        results.push(result);
+        core.info(`${server.name}: ${result.passed}/${result.total} tests passed (${result.rate}%)`);
+      } catch (error) {
+        core.error(`Failed to run server conformance tests for ${server.name}: ${error}`);
+        results.push({
+          serverName: server.name,
+          passed: 0, failed: 0, total: 0, rate: 0,
+          tests: {},
+          rawOutput: `Error: ${error}`
+        });
+      } finally {
+        core.endGroup();
+      }
+    }
+  }
+
+  // Run client tests
+  if ((testType === 'client' || testType === 'both') && clients && clients.length > 0) {
+    for (const client of clients) {
+      core.startGroup(`Client conformance tests for ${client.name}`);
+      try {
+        const result = await runClientConformanceTest(client, conformanceVersion);
+        results.push(result);
+        core.info(`${client.name}: ${result.passed}/${result.total} tests passed (${result.rate}%)`);
+      } catch (error) {
+        core.error(`Failed to run client conformance tests for ${client.name}: ${error}`);
+        results.push({
+          serverName: client.name,
+          passed: 0, failed: 0, total: 0, rate: 0,
+          tests: {},
+          rawOutput: `Error: ${error}`
+        });
+      } finally {
+        core.endGroup();
+      }
     }
   }
 

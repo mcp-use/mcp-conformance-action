@@ -3,7 +3,7 @@ import * as github from '@actions/github';
 import artifact from '@actions/artifact';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ActionInputs, ServerConfig, ServerTestResult } from './types';
+import { ActionInputs, ClientConfig, ServerConfig, ServerTestResult } from './types';
 import { runAllConformanceTests } from './conformance-runner';
 import { getSummaryStats } from './result-parser';
 import {
@@ -20,9 +20,16 @@ function getInputs(): ActionInputs {
   const mode = (core.getInput('mode') || 'test') as 'test' | 'comment';
 
   let servers: ServerConfig[] | undefined;
+  let clients: ClientConfig[] | undefined;
   if (mode === 'test') {
-    const serversInput = core.getInput('servers', { required: true });
-    servers = JSON.parse(serversInput);
+    const serversInput = core.getInput('servers');
+    if (serversInput) {
+      servers = JSON.parse(serversInput);
+    }
+    const clientsInput = core.getInput('clients');
+    if (clientsInput) {
+      clients = JSON.parse(clientsInput);
+    }
   }
 
   const baselineBranchesInput = core.getInput('baseline-branches') || '["main", "canary"]';
@@ -31,6 +38,7 @@ function getInputs(): ActionInputs {
   return {
     mode,
     servers,
+    clients,
     testType: (core.getInput('test-type') || 'server') as 'server' | 'client' | 'both',
     conformanceVersion: core.getInput('conformance-version') || 'latest',
     githubToken: core.getInput('github-token'),
@@ -48,17 +56,20 @@ function getInputs(): ActionInputs {
  * Run tests and upload artifacts (test mode)
  */
 async function runTestMode(inputs: ActionInputs): Promise<void> {
-  if (!inputs.servers || inputs.servers.length === 0) {
-    throw new Error('No servers configured');
+  if ((!inputs.servers || inputs.servers.length === 0) && (!inputs.clients || inputs.clients.length === 0)) {
+    throw new Error('No servers or clients configured');
   }
 
-  core.info(`Running conformance tests for ${inputs.servers.length} server(s)`);
+  const serverCount = inputs.servers?.length || 0;
+  const clientCount = inputs.clients?.length || 0;
+  core.info(`Running conformance tests for ${serverCount} server(s) and ${clientCount} client(s)`);
 
   // Run all conformance tests
   const results = await runAllConformanceTests(
-    inputs.servers,
+    inputs.servers || [],
     inputs.conformanceVersion,
-    inputs.testType
+    inputs.testType,
+    inputs.clients
   );
 
   // Generate summary
