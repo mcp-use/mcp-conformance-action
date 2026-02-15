@@ -90,9 +90,11 @@ export function generateCommentBody(
   runUrl: string,
   baselines?: Record<string, Record<string, ServerTestResult>>
 ): string {
-  const table = generateResultsTable(results, baselines);
+  // Split results into server and client groups
+  const serverResults = results.filter(r => !r.serverName.includes('-client'));
+  const clientResults = results.filter(r => r.serverName.includes('-client'));
 
-  return [
+  const sections: string[] = [
     COMMENT_MARKER,
     '<h2>',
     '<picture style="display: inline-block; vertical-align: middle; margin-right: 8px;">',
@@ -104,11 +106,21 @@ export function generateCommentBody(
     '</h2>',
     '',
     `**Commit:** \`${sha}\``,
-    '',
-    table,
-    '',
-    `[View full run details](${runUrl})`
-  ].join('\n');
+  ];
+
+  if (serverResults.length > 0) {
+    sections.push('', '### Server Conformance', '');
+    sections.push(generateResultsTable(serverResults, baselines));
+  }
+
+  if (clientResults.length > 0) {
+    sections.push('', '### Client Conformance', '');
+    sections.push(generateResultsTable(clientResults, baselines));
+  }
+
+  sections.push('', `[View full run details](${runUrl})`);
+
+  return sections.join('\n');
 }
 
 /**
