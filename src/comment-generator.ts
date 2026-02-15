@@ -21,64 +21,109 @@ function getComparisonIcon(
 }
 
 /**
- * Generate markdown table for test results
+ * Generate summary table (one row per SDK)
  */
-export function generateResultsTable(
+function generateSummaryTable(
+  results: ServerTestResult[],
+  baselines?: Record<string, Record<string, ServerTestResult>>
+): string {
+  const baselineBranches = baselines ? Object.keys(baselines) : [];
+
+  const baselineHeaders = baselineBranches.map(b => `vs ${b}`).join(' | ');
+  const header = baselineBranches.length > 0
+    ? `| SDK | Score | ${baselineHeaders} |`
+    : '| SDK | Score |';
+
+  const separator = baselineBranches.length > 0
+    ? `|-----|:-----:|${baselineBranches.map(() => ':-------:').join('|')}|`
+    : '|-----|:-----:|';
+
+  const rows = results.map(result => {
+    const score = `**${result.passed}/${result.total}** (${result.rate}%)`;
+    if (baselineBranches.length > 0) {
+      const baselineCells = baselineBranches
+        .map(branch => {
+          const baseline = baselines?.[branch]?.[result.serverName];
+          return getComparisonIcon(result, baseline);
+        })
+        .join(' | ');
+      return `| ${result.serverName} | ${score} | ${baselineCells} |`;
+    }
+    return `| ${result.serverName} | ${score} |`;
+  });
+
+  return [header, separator, ...rows].join('\n');
+}
+
+/**
+ * Generate transposed detail table (scenarios as rows, SDKs as columns)
+ */
+function generateDetailTable(
   results: ServerTestResult[],
   baselines?: Record<string, Record<string, ServerTestResult>>
 ): string {
   const allTests = getAllTestNames(results);
-  const baselineBranches = baselines ? Object.keys(baselines) : [];
+  if (allTests.length === 0) return '';
 
-  // Build header
-  const testHeaders = allTests.map(t => t.replace(/-/g, '&#8209;')).join(' | ');
-  const baselineHeaders = baselineBranches.map(b => `vs ${b}`).join(' | ');
-  const fullHeader = baselineHeaders
-    ? `| Server | Overall | ${baselineHeaders} | ${testHeaders} |`
-    : `| Server | Overall | ${testHeaders} |`;
+  // Header: Scenario | sdk1 | sdk2 | ...
+  const sdkHeaders = results.map(r => r.serverName).join(' | ');
+  const header = `| Scenario | ${sdkHeaders} |`;
+  const separator = `|----------|${results.map(() => ':---:').join('|')}|`;
 
-  // Build separator
-  const baselineSeparators = baselineBranches.map(() => ':-------:').join(' | ');
-  const testSeparators = allTests.map(() => ':---:').join(' | ');
-  const fullSeparator = baselineBranches.length > 0
-    ? `|--------|:-------:|${baselineSeparators}|${testSeparators}|`
-    : `|--------|:-------:|${testSeparators}|`;
+  const rows = allTests.map(testName => {
+    const cells = results.map(result => {
+      const current = result.tests[testName];
+      const baseline = baselines?.main?.[result.serverName]?.tests[testName];
 
-  // Build rows
-  const rows = results.map(result => {
-    // Baseline comparisons
-    const baselineCells = baselineBranches
-      .map(branch => {
-        const baseline = baselines?.[branch]?.[result.serverName];
-        return getComparisonIcon(result, baseline);
-      })
-      .join(' | ');
+      let icon = '➖';
+      if (current === true) icon = '✅';
+      else if (current === false) icon = '❌';
 
-    // Test results
-    const testCells = allTests
-      .map(testName => {
-        const current = result.tests[testName];
-        const baseline = baselines?.main?.[result.serverName]?.tests[testName];
+      // Add change indicator if changed from baseline
+      if (baseline !== undefined && baseline !== current) {
+        if (current === true && baseline === false) return `${icon} +1`;
+        if (current === false && baseline === true) return `${icon} -1`;
+      }
 
-        let icon = '➖';
-        if (current === true) icon = '✅';
-        else if (current === false) icon = '❌';
+      return icon;
+    }).join(' | ');
 
-        // Add change indicator if changed from baseline
-        if (baseline !== undefined && baseline !== current) {
-          if (current === true && baseline === false) return `${icon} +1`;
-          if (current === false && baseline === true) return `${icon} -1`;
-        }
-
-        return icon;
-      })
-      .join(' | ');
-
-    const baselineSection = baselineBranches.length > 0 ? `${baselineCells} | ` : '';
-    return `| ${result.serverName} | ${result.rate}% | ${baselineSection}${testCells} |`;
+    return `| ${testName} | ${cells} |`;
   });
 
-  return [fullHeader, fullSeparator, ...rows].join('\n');
+  return [header, separator, ...rows].join('\n');
+}
+
+/**
+ * Generate a section with summary + collapsible details
+ */
+function generateSection(
+  title: string,
+  results: ServerTestResult[],
+  baselines?: Record<string, Record<string, ServerTestResult>>
+): string {
+  const summaryTable = generateSummaryTable(results, baselines);
+  const detailTable = generateDetailTable(results, baselines);
+
+  const totalFailed = results.reduce((sum, r) => sum + r.failed, 0);
+  const detailSummary = totalFailed > 0
+    ? `${totalFailed} failure(s) — click to expand`
+    : 'All passing — click to expand';
+
+  const lines = [
+    `### ${title}`,
+    '',
+    summaryTable,
+    '',
+    '<details>',
+    `<summary>${detailSummary}</summary>`,
+    '',
+    detailTable,
+    '',
+    '</details>',
+  ];
+
+  return lines.join('\n');
 }
 
 /**
@@ -109,13 +154,11 @@ export function generateCommentBody(
   ];
 
   if (serverResults.length > 0) {
-    sections.push('', '### Server Conformance', '');
-    sections.push(generateResultsTable(serverResults, baselines));
+    sections.push('', generateSection('Server Conformance', serverResults, baselines));
   }
 
   if (clientResults.length > 0) {
-    sections.push('', '### Client Conformance', '');
-    sections.push(generateResultsTable(clientResults, baselines));
+    sections.push('', generateSection('Client Conformance', clientResults, baselines));
   }
 
   sections.push('', `[View full run details](${runUrl})`);
@@ -227,7 +270,7 @@ export async function fetchBaselineResults(
   const path = await import('path');
   const os = await import('os');
   const { exec } = await import('@actions/exec');
-  
+
   try {
     const octokit = github.getOctokit(token);
     const { owner, repo } = github.context.repo;
@@ -299,12 +342,12 @@ export async function fetchBaselineResults(
     const oldArtifactNames = ['python-conformance-results', 'typescript-conformance-results'];
     for (const oldName of oldArtifactNames) {
       if (results[oldName.replace('-conformance-results', '')]) continue; // Already have this server
-      
+
       const oldArtifact = artifacts.artifacts.find(a => a.name === oldName);
       if (oldArtifact) {
         const serverName = oldName.replace('-conformance-results', '');
         core.info(`Found old-format artifact ${oldName} for ${branch}`);
-        
+
         try {
           const download = await octokit.rest.actions.downloadArtifact({
             owner,
