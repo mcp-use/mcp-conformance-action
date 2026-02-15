@@ -5,3 +5,5 @@ lib/
 
 # Keep dist/ for GitHub Actions
 # dist/ is committed for actions to work
+# Exclude declaration maps (contain absolute paths that differ per machine)
+dist/*.d.ts.map
