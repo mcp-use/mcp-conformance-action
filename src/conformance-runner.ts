@@ -140,22 +140,26 @@ export async function runClientConformanceTest(
 
   const conformanceCommand = getConformanceCommand(conformanceVersion);
 
-  // List available client scenarios
-  const scenarios = await listClientScenarios(conformanceCommand);
+  // Use explicitly provided scenarios, or auto-discover all available ones
+  const scenarios = client.scenarios && client.scenarios.length > 0
+    ? client.scenarios
+    : await listClientScenarios(conformanceCommand);
+
   if (scenarios.length === 0) {
     core.warning('No client scenarios found');
     return parseConformanceOutput(client.name, '');
   }
 
-  core.info(`Found ${scenarios.length} client scenarios to run`);
+  core.info(`Running ${scenarios.length} client scenario(s): ${scenarios.join(', ')}`);
 
+  const tests: Record<string, boolean> = {};
+  let passed = 0;
+  let failed = 0;
   let allOutput = '';
-  let allErrorOutput = '';
 
   for (const scenario of scenarios) {
     core.info(`Running client scenario: ${scenario}`);
     let scenarioOutput = '';
-    let scenarioError = '';
 
     try {
       await exec.exec(
@@ -168,7 +172,7 @@ export async function runClientConformanceTest(
           cwd: client['working-directory'] || process.cwd(),
           listeners: {
             stdout: (data: Buffer) => { scenarioOutput += data.toString(); },
-            stderr: (data: Buffer) => { scenarioError += data.toString(); }
+            stderr: (data: Buffer) => { scenarioOutput += data.toString(); }
           },
           ignoreReturnCode: true
         }
@@ -178,11 +182,31 @@ export async function runClientConformanceTest(
     }
 
     allOutput += scenarioOutput + '\n';
-    allErrorOutput += scenarioError + '\n';
+
+    // Determine pass/fail from OVERALL line
+    if (scenarioOutput.includes('OVERALL: PASSED')) {
+      tests[scenario] = true;
+      passed++;
+      core.info(`  ✓ ${scenario}: PASSED`);
+    } else {
+      tests[scenario] = false;
+      failed++;
+      core.info(`  ✗ ${scenario}: FAILED`);
+    }
   }
 
-  const fullOutput = allOutput + '\n' + allErrorOutput;
-  return parseConformanceOutput(client.name, fullOutput);
+  const total = passed + failed;
+  const rate = total > 0 ? Math.round((passed / total) * 100) : 0;
+
+  return {
+    serverName: client.name,
+    passed,
+    failed,
+    total,
+    rate,
+    tests,
+    rawOutput: allOutput
+  };
 }
 
 /**
