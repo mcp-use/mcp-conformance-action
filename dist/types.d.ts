@@ -11,6 +11,7 @@ export interface ClientConfig {
     'setup-commands'?: string[];
     command: string;
     'working-directory'?: string;
+    scenarios?: string[];
 }
 export interface TestResult {
     name: string;

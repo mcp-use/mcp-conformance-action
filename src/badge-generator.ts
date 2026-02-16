@@ -73,6 +73,13 @@ export async function updateBadgeGist(
 }
 
 /**
+ * Sleep for a specified duration
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
  * Update badges for all server results
  */
 export async function updateAllBadges(
@@ -80,12 +87,20 @@ export async function updateAllBadges(
   gistId: string,
   results: ServerTestResult[]
 ): Promise<void> {
-  for (const result of results) {
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
     const badgeData = generateBadgeData(result.serverName, result);
     const filename = `${result.serverName.toLowerCase()}-conformance.json`;
 
     try {
       await updateBadgeGist(token, gistId, filename, badgeData);
+      
+      // Add delay between updates to avoid GitHub API rate limits
+      // Skip delay after the last update
+      if (i < results.length - 1) {
+        core.info('Waiting 2 seconds before next badge update...');
+        await sleep(2000);
+      }
     } catch (error) {
       core.warning(
         `Failed to update badge for ${result.serverName}: ${error}`

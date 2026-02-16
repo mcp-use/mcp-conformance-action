@@ -1,9 +1,5 @@
 import { ServerTestResult } from './types';
 /**
- * Generate markdown table for test results
- */
-export declare function generateResultsTable(results: ServerTestResult[], baselines?: Record<string, Record<string, ServerTestResult>>): string;
-/**
  * Generate full PR comment body
  */
 export declare function generateCommentBody(results: ServerTestResult[], sha: string, runUrl: string, baselines?: Record<string, Record<string, ServerTestResult>>): string;
