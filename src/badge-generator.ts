@@ -23,7 +23,7 @@ export function generateBadgeData(
     message = 'no tests';
     color = 'lightgrey';
   } else {
-    message = `${result.passed}/${result.total} (${result.rate}%)`;
+    message = `${result.rate}%`;
 
     if (result.passed === result.total) {
       color = 'brightgreen';
