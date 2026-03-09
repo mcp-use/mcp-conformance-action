@@ -13,6 +13,23 @@ import {
 } from './comment-generator';
 import { updateAllBadges } from './badge-generator';
 
+function validateResults(results: ServerTestResult[]): void {
+  const invalidResults = results.filter(result => result.total <= 0);
+  if (invalidResults.length === 0) {
+    return;
+  }
+
+  const details = invalidResults
+    .map(result => {
+      const rawOutput = (result.rawOutput || '').trim();
+      const outputPreview = rawOutput ? ` Raw output: ${JSON.stringify(rawOutput.slice(0, 200))}` : '';
+      return `${result.serverName} produced no conformance results.${outputPreview}`;
+    })
+    .join('\n');
+
+  throw new Error(`Conformance run did not produce valid results.\n${details}`);
+}
+
 /**
  * Parse action inputs
  */
@@ -71,6 +88,8 @@ async function runTestMode(inputs: ActionInputs): Promise<void> {
     inputs.testType,
     inputs.clients
   );
+
+  validateResults(results);
 
   // Generate summary
   if (inputs.showSummary) {
@@ -204,6 +223,8 @@ async function runCommentMode(inputs: ActionInputs): Promise<void> {
   if (results.length === 0) {
     throw new Error('No test results found');
   }
+
+  validateResults(results);
 
   // Fetch baseline results if configured
   let baselines: Record<string, Record<string, ServerTestResult>> | undefined;
