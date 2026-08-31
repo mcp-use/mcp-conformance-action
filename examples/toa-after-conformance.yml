@@ -1,0 +1,42 @@
+# Example only. Copy into your repo as needed.
+# Conformance (protocol) then optional TOA verify (delivery evidence).
+name: MCP Conformance and optional TOA
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  conformance-and-toa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install and build
+        run: |
+          npm install
+          npm run build
+
+      - name: Run conformance tests
+        uses: mcp-use/mcp-conformance-action@v1
+        with:
+          mode: test
+          servers: |
+            [
+              {
+                "name": "my-server",
+                "start-command": "npm start",
+                "url": "http://localhost:3000/mcp"
+              }
+            ]
+
+      # Optional: only runs when toa.json is present in the workspace.
+      - name: Verify tool delivery attestation
+        if: hashFiles('toa.json') != ''
+        run: |
+          pip install "git+https://github.com/Carmel-Labs-Inc/toa.git@99e2690fec24a5290d9542e58383a8bf753e8b74#subdirectory=python"
+          toa-verify toa.json --require-emitter agentstatus --require-layer functional=pass --max-age 7d

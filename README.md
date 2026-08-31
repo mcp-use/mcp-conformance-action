@@ -113,6 +113,28 @@ jobs:
           comment-mode: update
 ```
 
+### Optional: verify Tool Outcome Attestation (TOA) after conformance
+
+Protocol conformance and tool-delivery evidence are different checks. If your workflow already produces a signed [toa](https://github.com/Carmel-Labs-Inc/toa) JSON from AgentStatus (or another emitter whose key you pin), you can fail the job when verify fails. The example below requires `emitter.name=agentstatus` and uses the packaged AgentStatus key; pass `--public-key` for another issuer. No AgentStatus account is required to verify.
+
+```yaml
+      - name: Run conformance tests
+        uses: mcp-use/mcp-conformance-action@v1
+        with:
+          mode: test
+          servers: |
+            [{"name": "my-server", "start-command": "npm start", "url": "http://localhost:3000/mcp"}]
+
+      # Optional. Provide toa.json from your emit step or an artifact.
+      - name: Verify tool delivery attestation
+        if: hashFiles('toa.json') != ''
+        run: |
+          pip install "git+https://github.com/Carmel-Labs-Inc/toa.git@99e2690fec24a5290d9542e58383a8bf753e8b74#subdirectory=python"
+          toa-verify toa.json --require-emitter agentstatus --require-layer functional=pass --max-age 7d
+```
+
+Always pass `--require-emitter` (and `--max-age` when you need freshness). See the toa repo for `--public-key`.
+
 ## Inputs
 
 ### Test Mode Inputs
