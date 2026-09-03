@@ -120,7 +120,8 @@ jobs:
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
 | `mode` | Action mode: `test` or `comment` | No | `test` |
-| `servers` | JSON array of server configurations | Yes (test mode) | - |
+| `servers` | JSON array of server configurations | For server tests | - |
+| `clients` | JSON array of client configurations | For client tests | - |
 | `test-type` | Type of tests: `server`, `client`, or `both` | No | `server` |
 | `conformance-version` | Version of @modelcontextprotocol/conformance | No | `latest` |
 | `show-summary` | Show results in Actions summary | No | `true` |
@@ -161,6 +162,20 @@ The `servers` input accepts a JSON array of server objects with the following st
 | `url` | URL where the MCP server is accessible | Yes |
 | `setup-commands` | Array of commands to run before starting server | No |
 | `working-directory` | Directory to run commands in | No |
+
+## Client Configuration
+
+The `clients` input accepts a JSON array of client objects.
+
+### Client Configuration Fields
+
+| Field | Description | Required |
+|-------|-------------|----------|
+| `name` | Display name for the client | Yes |
+| `command` | Command to run the client | Yes |
+| `setup-commands` | Array of commands to run before the client | No |
+| `working-directory` | Directory to run commands in | No |
+| `scenarios` | Scenarios to run | No |
 
 ### Example: Multiple Servers
 
@@ -322,12 +337,11 @@ Test MCP client implementations:
   with:
     mode: test
     test-type: client
-    servers: |
+    clients: |
       [
         {
           "name": "my-client",
-          "start-command": "npm run start:client",
-          "url": "http://localhost:3000"
+          "command": "npm run start:client"
         }
       ]
 ```
