@@ -116,7 +116,7 @@ export async function runServerConformanceTest(
   }
 
   const fullOutput = output + '\n' + errorOutput;
-  return parseConformanceOutput(server.name, fullOutput);
+  return { ...parseConformanceOutput(server.name, fullOutput), kind: 'server' };
 }
 
 /**
@@ -147,7 +147,7 @@ export async function runClientConformanceTest(
 
   if (scenarios.length === 0) {
     core.warning('No client scenarios found');
-    return parseConformanceOutput(client.name, '');
+    return { ...parseConformanceOutput(client.name, ''), kind: 'client' };
   }
 
   core.info(`Running ${scenarios.length} client scenario(s): ${scenarios.join(', ')}`);
@@ -200,6 +200,7 @@ export async function runClientConformanceTest(
 
   return {
     serverName: client.name,
+    kind: 'client',
     passed,
     failed,
     total,
@@ -232,6 +233,7 @@ export async function runAllConformanceTests(
         core.error(`Failed to run server conformance tests for ${server.name}: ${error}`);
         results.push({
           serverName: server.name,
+          kind: 'server',
           passed: 0, failed: 0, total: 0, rate: 0,
           tests: {},
           rawOutput: `Error: ${error}`
@@ -254,6 +256,7 @@ export async function runAllConformanceTests(
         core.error(`Failed to run client conformance tests for ${client.name}: ${error}`);
         results.push({
           serverName: client.name,
+          kind: 'client',
           passed: 0, failed: 0, total: 0, rate: 0,
           tests: {},
           rawOutput: `Error: ${error}`

@@ -135,9 +135,12 @@ export function generateCommentBody(
   runUrl: string,
   baselines?: Record<string, Record<string, ServerTestResult>>
 ): string {
-  // Split results into server and client groups
-  const serverResults = results.filter(r => !r.serverName.includes('-client'));
-  const clientResults = results.filter(r => r.serverName.includes('-client'));
+  // Split results into server and client groups. Results saved by older
+  // versions have no kind, so fall back to the '-client' name convention.
+  const isClient = (r: ServerTestResult) =>
+    r.kind ? r.kind === 'client' : r.serverName.includes('-client');
+  const serverResults = results.filter(r => !isClient(r));
+  const clientResults = results.filter(r => isClient(r));
 
   const sections: string[] = [
     COMMENT_MARKER,

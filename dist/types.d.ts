@@ -19,6 +19,8 @@ export interface TestResult {
 }
 export interface ServerTestResult {
     serverName: string;
+    /** Whether this result came from a server or a client run. Absent in artifacts from older versions. */
+    kind?: 'server' | 'client';
     passed: number;
     failed: number;
     total: number;
